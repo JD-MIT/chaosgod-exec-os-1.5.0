@@ -17,10 +17,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math"
 	"os"
 	"path"
@@ -43,20 +45,34 @@ import (
 const PageCounterMax uint64 = 9223372036854770000
 
 const (
-	//processOOMScoreAdj = "/proc/%s/oom_score_adj"
-	//oomMinScore        = "-1000"
-	processOOMAdj      = "/proc/%s/oom_adj"
-	oomMinAdj          = "-17"
+	processOOMScoreAdj = "/proc/%s/oom_score_adj"
+	oomMinScore        = "-1000"
 )
 
 // 128K
 type Block [32 * 1024]int32
 
 var (
-	burnMemStart, burnMemStop, burnMemNohup, includeBufferCache, avoidBeingKilled bool
-	memPercent, memReserve, memRate                                               int
-	burnMemMode                                                                   string
+	burnMemStart, burnMemStop, burnMemNohup, includeBufferCache, avoidBeingKilled, rateFlag, isHost bool
+	memPercent, memReserve, memRate                                                                 int
+	burnMemMode                                                                                     string
 )
+
+func init() {
+	cgroupfile, err := os.Open("/proc/1/cgroup")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer cgroupfile.Close()
+
+	rd := bufio.NewReader(cgroupfile)
+	if err != nil {
+		fmt.Println(err)
+	}
+	cgroup, _, err := rd.ReadLine()
+
+	isHost = strings.Contains(string(cgroup), "kubepods")
+}
 
 func main() {
 	flag.BoolVar(&burnMemStart, "start", false, "start burn memory")
@@ -66,10 +82,15 @@ func main() {
 	flag.BoolVar(&avoidBeingKilled, "avoid-being-killed", false, "prevent mem-burn process from being killed by oom-killer")
 	flag.IntVar(&memPercent, "mem-percent", 0, "percent of burn memory")
 	flag.IntVar(&memReserve, "reserve", 0, "reserve to burn memory, unit is M")
-	flag.IntVar(&memRate, "rate", 100, "burn memory rate, unit is M/S, only support for ram mode")
+	flag.IntVar(&memRate, "rate", 0, "burn memory rate, unit is M/S, only support for ram mode")
 	flag.StringVar(&burnMemMode, "mode", "cache", "burn memory mode, cache or ram")
 	bin.ParseFlagAndInitLog()
 
+	if memRate <= 0 {
+		rateFlag = false
+	} else {
+		rateFlag = true
+	}
 	if burnMemStart {
 		startBurnMem()
 	} else if burnMemStop {
@@ -99,16 +120,24 @@ func burnMemWithRam() {
 	var cache = make(map[int][]Block, 1)
 	var count = 1
 	cache[count] = make([]Block, 0)
-	if memRate <= 0 {
-		memRate = 100
-	}
 	for range tick {
 		_, expectMem, err := calculateMemSize(memPercent, memReserve)
+		if !rateFlag {
+
+			if (expectMem / 4094) > 0 {
+				memRate = 4096
+			} else if expectMem >= 1024 {
+				memRate = 1024
+			} else {
+				memRate = 100
+			}
+		}
 		if err != nil {
 			stopBurnMemFunc()
 			bin.PrintErrAndExit(err.Error())
 		}
 		fillMem := expectMem
+		log.Println("expectMem:=", expectMem, "memRate:=", memRate)
 		if expectMem > 0 {
 			if expectMem > int64(memRate) {
 				fillMem = int64(memRate)
@@ -213,12 +242,12 @@ func runBurnMem(ctx context.Context, memPercent, memReserve, memRate int, burnMe
 	// adjust process oom_score_adj to avoid being killed
 	if avoidBeingKilled {
 		for _, pid := range pids {
-			scoreAdjFile := fmt.Sprintf(processOOMAdj, pid)
+			scoreAdjFile := fmt.Sprintf(processOOMScoreAdj, pid)
 			if _, err := os.Stat(scoreAdjFile); os.IsNotExist(err) {
 				continue
 			}
 
-			if err := ioutil.WriteFile(scoreAdjFile, []byte(oomMinAdj), 0644); err != nil {
+			if err := ioutil.WriteFile(scoreAdjFile, []byte(oomMinScore), 0644); err != nil {
 				stopBurnMemFunc()
 				bin.PrintErrAndExit(fmt.Sprintf("run burn memory by %s mode failed, cannot edit the process oom_score_adj",
 					burnMemMode))
@@ -280,7 +309,7 @@ func calculateMemSize(percent, reserve int) (int64, int64, error) {
 		}
 	} else {
 		total = int64(memoryStat.Usage.Limit)
-		available = total - int64(memoryStat.Usage.Usage)
+		available = total - int64(memoryStat.ActiveAnon+memoryStat.InactiveAnon)
 		if burnMemMode == "ram" && !includeBufferCache {
 			available = available + int64(memoryStat.Cache)
 		}
@@ -291,6 +320,21 @@ func calculateMemSize(percent, reserve int) (int64, int64, error) {
 	} else {
 		reserved = int64(reserve)
 	}
+
+	if isHost {
+		activeAnon := int64(memoryStat.ActiveAnon)
+		inactiveAnon := int64(memoryStat.InactiveAnon)
+		used := int64(activeAnon + inactiveAnon)
+		expectSize := (total*int64(percent)/100 - used) / 1024 / 1024
+		logrus.Printf("total: %d, used: %d, percent: %d, expectSize: %d",
+			total/1024/1024, used/1024/1024, percent, expectSize)
+
+		logrus.Debugf("available: %d, percent: %d, reserved: %d, expectSize: %d",
+			available/1024/1024, percent, reserved, expectSize)
+
+		return total / 1024 / 1024, expectSize, nil
+	}
+
 	expectSize := available/1024/1024 - reserved
 
 	logrus.Debugf("available: %d, percent: %d, reserved: %d, expectSize: %d",
