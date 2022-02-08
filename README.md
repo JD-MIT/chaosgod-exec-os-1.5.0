@@ -1,40 +1,43 @@
-# Chaosblade-exec-os: Basic Resources Chaos Experiment Executor
+# Chaosblade-exec-os: 基础资源混沌实验场景执行器
 ![license](https://img.shields.io/github/license/chaosblade-io/chaosblade.svg)
 
-中文版 [README](README_CN.md)
+## 介绍
+Chaosblade-exec-os 项目封装了基础资源故障场景，支持的组件包括 CPU、内存、网络、磁盘、进程、脚本等，使用 linux 命令或 golang 语言本身，以及 cgroup 资源管理实现。每个组件下又细分了很多故障，比如网络丢包、网络延迟，且场景有支持很多参数来控制影响面，且每个故障场景都有兜底策略，保障故障注入可控。
 
-## Introduction
-The chaosblade-exec-os project encapsulates basic resource failure scenarios. Supported components include CPU, memory, network, disk, process, shell scripts, etc., using linux commands or the golang language itself, and cgroup resource management implementation. Each component is further subdivided into many faults, such as network packet loss and network delay, and the scenario supports many parameters to control the influence surface, and each fault scenario has a bottom-up strategy to ensure controllable fault injection.
+### JD 定制部分
+- CPU使用率通过cgroup文件进行计算，确保容器的CPU使用率精准性
+- CPU使用率增加绝对占用参数，用来制造业务进程争抢不到CPU算力的场景
+- MEM增加自适应步长的逻辑，平滑兼容不同内存规格的容器 
 
-## How to use
-This project can be compiled and used separately, but it is more recommended to use [chaosblade](https://github.com/chaosblade-io/chaosblade) CLI tool to execute, because its operation is simple and it has perfect experiments management and command prompt. For detailed Chinese documentation, please refer to: https://chaosblade-io.gitbook.io/chaosblade-help-zh-cn/
+## 使用
+此项目可以单独编译后使用，但更建议通过 [chaosblade](https://github.com/chaosblade-io/chaosblade) CLI 工具使用，因为其操作简单且就有完善的场景管理和命令提示。详细的中文使用文档请参考：https://chaosblade-io.gitbook.io/chaosblade-help-zh-cn/
 
-## Compile
-This project is written in golang, so you need to install the latest golang version first. The minimum supported version is 1.11. After the Clone project, enter the project directory and execute the following command to compile:
+## 编译
+此项目采用 golang 语言编写，所以需要先安装最新的 golang 版本，最低支持的版本是 1.11。Clone 工程后进入项目目录执行以下命令进行编译：
 ```shell script
 make
 ```
-If on a mac system, compile the current system version, execute:
+如果在 mac 系统上，编译当前系统的版本，请执行：
 ```shell script
 make build_darwin
 ```
-If you want to compile linux system version on mac system, execute:
+如果想在 mac 系统上，编译 linux 系统版本，请执行：
 ```shell script
 make build_linux
 ```
-You can also only clone [chaosblade] (https://github.com/chaosblade-io/chaosblade) project, execute `make` or` make build_linux` in the project directory to compile it uniformly, and implement this project through blade cli Failure scenario.
+你也可以只 clone [chaosblade](https://github.com/chaosblade-io/chaosblade) 项目，在项目目录下执行 `make` 或 `make build_linux` 来统一编译，实现通过 blade cli 工具执行此项目故障场景。
 
-## Bugs and Feedback
-For bug report, questions and discussions please submit [GitHub Issues](https://github.com/chaosblade-io/chaosblade/issues). 
+## 缺陷&建议
+欢迎提交缺陷、问题、建议和新功能，所有项目（包含其他项目）的问题都可以提交到[Github Issues](https://github.com/chaosblade-io/chaosblade/issues) 
 
-You can also contact us via:
-* Dingding group (recommended for chinese): 23177705
-* Gitter room: [chaosblade community] (https://gitter.im/chaosblade-io/community)
-* Email: chaosblade.io.01@gmail.com
-* Twitter: [chaosblade.io] (https://twitter.com/ChaosbladeI)
+你也可以通过以下方式联系我们：
+* 钉钉群（推荐）：23177705
+* Gitter room: [chaosblade community](https://gitter.im/chaosblade-io/community)
+* 邮箱：chaosblade.io.01@gmail.com
+* Twitter: [chaosblade.io](https://twitter.com/ChaosbladeI)
 
-## Contributing
-We welcome every contribution, even if it is just punctuation. See details of [CONTRIBUTING](CONTRIBUTING.md)
+## 参与贡献
+我们非常欢迎每个 Issue 和 PR，即使一个标点符号，如何参加贡献请阅读 [CONTRIBUTING](CONTRIBUTING.md) 文档，或者通过上述的方式联系我们。
 
-## License
-The chaosblade-exec-os is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full license text.
+## 开源许可证
+Chaosblade-exec-os 遵循 Apache 2.0 许可证，详细内容请阅读 [LICENSE](LICENSE)
