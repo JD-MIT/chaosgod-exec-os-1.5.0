@@ -22,11 +22,11 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math"
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chaosblade-io/chaosblade-spec-go/channel"
@@ -59,19 +59,17 @@ var (
 )
 
 func init() {
-	cgroupfile, err := os.Open("/proc/1/cgroup")
-	if err != nil {
-		fmt.Println(err)
-	}
-	defer cgroupfile.Close()
-
-	rd := bufio.NewReader(cgroupfile)
-	if err != nil {
-		fmt.Println(err)
-	}
-	cgroup, _, err := rd.ReadLine()
-
-	isHost = strings.Contains(string(cgroup), "kubepods")
+	//	var logfile *os.File
+	//	var err error
+	//	logfile, err = os.OpenFile("./chaos_burnmem.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	//	if err != nil {
+	//		fmt.Println("OPen log failed err:", err)
+	//		return
+	//	}
+	//	log.SetOutput(logfile)
+	//	log.SetPrefix("[ chaos-server ]")
+	//	log.SetFlags(log.Lshortfile | log.Lmicroseconds | log.Ldate)
+	isHost = !isCout()
 }
 
 func main() {
@@ -120,13 +118,13 @@ func burnMemWithRam() {
 	var cache = make(map[int][]Block, 1)
 	var count = 1
 	cache[count] = make([]Block, 0)
+	state := sync.Mutex{}
 	for range tick {
+		state.Lock()
 		_, expectMem, err := calculateMemSize(memPercent, memReserve)
 		if !rateFlag {
 
-			if (expectMem / 4094) > 0 {
-				memRate = 4096
-			} else if expectMem >= 1024 {
+			if expectMem > 2048 {
 				memRate = 1024
 			} else {
 				memRate = 100
@@ -137,7 +135,6 @@ func burnMemWithRam() {
 			bin.PrintErrAndExit(err.Error())
 		}
 		fillMem := expectMem
-		log.Println("expectMem:=", expectMem, "memRate:=", memRate)
 		if expectMem > 0 {
 			if expectMem > int64(memRate) {
 				fillMem = int64(memRate)
@@ -155,9 +152,11 @@ func burnMemWithRam() {
 				cache[count] = make([]Block, 0)
 				buf = cache[count]
 			}
-			logrus.Debugf("count: %d, len(buf): %d, cap(buf): %d, expect mem: %d, fill size: %d",
-				count, len(buf), cap(buf), expectMem, fillSize)
+			//log.Printf("count: %d, len(buf): %d, cap(buf): %d, expect mem: %d, fill size: %d",
+			//	count, len(buf), cap(buf), expectMem, fillSize)
+			//log.Printf("%s",fillSize)
 			cache[count] = append(buf, make([]Block, fillSize)...)
+			state.Unlock()
 		}
 	}
 }
@@ -321,24 +320,26 @@ func calculateMemSize(percent, reserve int) (int64, int64, error) {
 		reserved = int64(reserve)
 	}
 
-	if isHost {
+	if !isHost {
 		activeAnon := int64(memoryStat.ActiveAnon)
 		inactiveAnon := int64(memoryStat.InactiveAnon)
 		used := int64(activeAnon + inactiveAnon)
 		expectSize := (total*int64(percent)/100 - used) / 1024 / 1024
-		logrus.Printf("total: %d, used: %d, percent: %d, expectSize: %d",
-			total/1024/1024, used/1024/1024, percent, expectSize)
-
-		logrus.Debugf("available: %d, percent: %d, reserved: %d, expectSize: %d",
-			available/1024/1024, percent, reserved, expectSize)
+		//log.Printf("isCout")
+		//log.Printf("total: %d, used: %d, percent: %d, expectSize: %d",
+		//	total/1024/1024, used/1024/1024, percent, expectSize)
+		//
+		//log.Printf("available: %d, percent: %d, reserved: %d, expectSize: %d",
+		//	available/1024/1024, percent, reserved, expectSize)
 
 		return total / 1024 / 1024, expectSize, nil
 	}
 
 	expectSize := available/1024/1024 - reserved
-
-	logrus.Debugf("available: %d, percent: %d, reserved: %d, expectSize: %d",
-		available/1024/1024, percent, reserved, expectSize)
+	//log.Printf("total: %d, percent: %d, expectSize: %d",
+	//	total/1024/1024, percent, expectSize)
+	//log.Printf("available: %d, percent: %d, reserved: %d, expectSize: %d",
+	//	available/1024/1024, percent, reserved, expectSize)
 
 	return total / 1024 / 1024, expectSize, nil
 }
@@ -353,4 +354,20 @@ func getMemoryStatsByCGroup() (*v1.MemoryStat, error) {
 		return nil, fmt.Errorf("load cgroup stat error, %v", err)
 	}
 	return stats.Memory, nil
+}
+
+func isCout() bool {
+	cgroupfile, err := os.Open("/proc/1/cgroup")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer cgroupfile.Close()
+
+	rd := bufio.NewReader(cgroupfile)
+	if err != nil {
+		fmt.Println(err)
+	}
+	cgroup, _, err := rd.ReadLine()
+
+	return strings.Contains(string(cgroup), "kubepods")
 }
